@@ -82,6 +82,9 @@ fun SettingsScreen() {
     var tcpMode by remember {
         mutableStateOf(ShizukuSettings.isTcpMode())
     }
+    var autoDisableUsbDebugging by remember {
+        mutableStateOf(ShizukuSettings.getAutoDisableUsbDebugging())
+    }
     var languageTag by remember {
         mutableStateOf(prefs.getString(LANGUAGE, "SYSTEM") ?: "SYSTEM")
     }
@@ -235,6 +238,16 @@ fun SettingsScreen() {
                     onCheckedChange = { enabled ->
                         ShizukuSettings.setTcpMode(enabled)
                         tcpMode = ShizukuSettings.isTcpMode()
+                    }
+                )
+                SwitchSettingsRow(
+                    icon = R.drawable.ic_adb_24dp,
+                    title = stringResource(R.string.settings_auto_disable_usb_debugging),
+                    summary = stringResource(R.string.settings_auto_disable_usb_debugging_summary),
+                    checked = autoDisableUsbDebugging,
+                    onCheckedChange = { enabled ->
+                        ShizukuSettings.setAutoDisableUsbDebugging(enabled)
+                        autoDisableUsbDebugging = ShizukuSettings.getAutoDisableUsbDebugging()
                     }
                 )
             }

@@ -284,6 +284,8 @@ With %1$s, in any terminal app, you can connect to and interact with the shell r
     <string name="dhizuku_warning_message">Dhizuku is designed for Device Owner/admin privileges. Some shell and ADB-specific commands may not work properly or may be entirely unsupported when running Shevery via Dhizuku. Are you sure you want to proceed?</string>
     <string name="settings_tcp_mode">TCP Mode</string>
     <string name="settings_tcp_mode_summary">Attempt to reconnect and restart server via local ADB on port 5555 (watchdog)</string>
+    <string name="settings_auto_disable_usb_debugging">Auto-disable USB debugging</string>
+    <string name="settings_auto_disable_usb_debugging_summary">Turn off USB debugging after reboot when Shevery is not configured to start on boot</string>
     <string name="settings_service_group">Service Maintenance</string>
 
     <!-- Lab Features - Service Behavior -->

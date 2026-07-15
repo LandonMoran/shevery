@@ -26,6 +26,7 @@ public class ShizukuSettings {
     public static final String LANGUAGE = "language";
     public static final String KEEP_START_ON_BOOT = "start_on_boot";
     public static final String TCP_MODE = "tcp_mode";
+    public static final String AUTO_DISABLE_USB_DEBUGGING = "auto_disable_usb_debugging";
 
 
     private static SharedPreferences sPreferences;
@@ -114,6 +115,14 @@ public class ShizukuSettings {
 
     public static void setTcpMode(boolean enabled) {
         getPreferences().edit().putBoolean(TCP_MODE, enabled).apply();
+    }
+
+    public static boolean getAutoDisableUsbDebugging() {
+        return getPreferences().getBoolean(AUTO_DISABLE_USB_DEBUGGING, false);
+    }
+
+    public static void setAutoDisableUsbDebugging(boolean enabled) {
+        getPreferences().edit().putBoolean(AUTO_DISABLE_USB_DEBUGGING, enabled).apply();
     }
 
 
