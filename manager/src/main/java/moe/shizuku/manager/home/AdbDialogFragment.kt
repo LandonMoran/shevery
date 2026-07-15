@@ -65,7 +65,7 @@ class AdbDialogFragment : DialogFragment() {
             }
         }
 
-        val port = EnvironmentUtils.getAdbTcpPort()
+        val port = EnvironmentUtils.getLiveAdbTcpPort()
 
         val builder = MaterialAlertDialogBuilder(context).apply {
             setTitle(R.string.dialog_adb_discovery)
@@ -109,7 +109,7 @@ class AdbDialogFragment : DialogFragment() {
         }
 
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
-            startAndDismiss(EnvironmentUtils.getAdbTcpPort())
+            startAndDismiss(EnvironmentUtils.getLiveAdbTcpPort())
         }
 
         port.observe(this) {
