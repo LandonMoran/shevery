@@ -23,6 +23,8 @@ public class ServiceStarter {
 
     private static final String EXTRA_BINDER = "moe.shizuku.privileged.api.intent.extra.BINDER";
 
+    private static final long[] NULL_PROVIDER_RETRY_BACKOFF_MS = {250, 500, 1000, 1500};
+
     public static final String DEBUG_ARGS;
 
     static {
@@ -98,10 +100,19 @@ public class ServiceStarter {
         IContentProvider provider = null;
 
         try {
-            provider = ActivityManagerApis.getContentProviderExternal(name, userId, null, name);
-            if (provider == null) {
-                Log.e(TAG, String.format("provider is null %s %d", name, userId));
-                return false;
+            for (int attempt = 0; ; attempt++) {
+                provider = ActivityManagerApis.getContentProviderExternal(name, userId, null, name);
+                if (provider != null) {
+                    break;
+                }
+                if (attempt >= NULL_PROVIDER_RETRY_BACKOFF_MS.length) {
+                    Log.e(TAG, String.format("provider is null %s %d (gave up after %d attempts)", name, userId, attempt + 1));
+                    return false;
+                }
+                long backoff = NULL_PROVIDER_RETRY_BACKOFF_MS[attempt];
+                Log.w(TAG, String.format("provider is null %s %d, retrying in %dms (attempt %d/%d)",
+                        name, userId, backoff, attempt + 1, NULL_PROVIDER_RETRY_BACKOFF_MS.length + 1));
+                Thread.sleep(backoff);
             }
             if (!provider.asBinder().pingBinder()) {
                 Log.e(TAG, String.format("provider is dead %s %d", name, userId));
