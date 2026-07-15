@@ -39,6 +39,9 @@ public abstract class UserServiceRecord {
     public final RemoteCallbackList<IShizukuServiceConnection> callbacks = new ConnectionList();
     public boolean daemon;
     public boolean starting;
+    public boolean pendingDestroy;
+    public Runnable spawnRunnable;
+    public int spawnAttempts;
 
     public UserServiceRecord(int versionCode, boolean daemon) {
         this.versionCode = versionCode;
@@ -83,6 +86,18 @@ public abstract class UserServiceRecord {
             binder.linkToDeath(deathRecipient, 0);
         } catch (Throwable tr) {
             LOGGER.w("linkToDeath %s", token);
+        }
+
+        if (pendingDestroy) {
+            LOGGER.v("Service record %s attached after an unbind requested its removal - removing", token);
+            removeSelf();
+            return;
+        }
+
+        if (!daemon && callbacks.getRegisteredCallbackCount() == 0) {
+            LOGGER.v("Service record %s attached with no connections left - removing", token);
+            removeSelf();
+            return;
         }
 
         broadcastBinderReceived();

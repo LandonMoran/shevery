@@ -16,6 +16,7 @@ import android.content.pm.PackageInfo;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.Parcel;
 import android.text.format.DateUtils;
 import android.util.ArrayMap;
 
@@ -83,7 +84,11 @@ public abstract class UserServiceManager {
             UserServiceRecord record = getUserServiceRecordLocked(key);
             if (record == null) return 1;
             if (remove) {
-                removeUserServiceLocked(record);
+                if (record.service == null) {
+                    record.pendingDestroy = true;
+                } else {
+                    removeUserServiceLocked(record);
+                }
             } else {
                 record.callbacks.unregister(conn);
             }
@@ -154,6 +159,7 @@ public abstract class UserServiceManager {
                     newRecord.setStartingTimeout(DateUtils.SECOND_IN_MILLIS * 30);
 
                     Runnable runnable = () -> startUserService(newRecord, key, newRecord.token, packageName, className, processNameSuffix, uid, use32Bits, debug);
+                    newRecord.spawnRunnable = runnable;
                     executor.execute(runnable);
                     return 0;
                 }
@@ -180,6 +186,7 @@ public abstract class UserServiceManager {
                 if (record.daemon != daemon) {
                     record.setDaemon(daemon);
                 }
+                record.pendingDestroy = false;
                 return record;
             }
 
@@ -228,12 +235,36 @@ public abstract class UserServiceManager {
 
             exitCode = process.waitFor();
         } catch (Throwable e) {
-            throw new IllegalStateException(e);
+            LOGGER.w("Failed to start process for service record %s (%s): %s", key, token, e.getMessage());
+            dropRecordIfNotAttachedLocked(record);
+            return;
         }
         if (exitCode != 0) {
-            throw new IllegalStateException("sh exited with " + exitCode);
+            LOGGER.w("Process for service record %s (%s) exited with %d before attaching", key, token, exitCode);
+            dropRecordIfNotAttachedLocked(record);
         }
     }
+
+    private void dropRecordIfNotAttachedLocked(UserServiceRecord record) {
+        synchronized (this) {
+            if (record.service != null) {
+                return;
+            }
+            if (record.callbacks.getRegisteredCallbackCount() > 0
+                    && record.spawnRunnable != null
+                    && userServiceRecords.containsValue(record)
+                    && record.spawnAttempts < MAX_SPAWN_RETRIES) {
+                record.spawnAttempts++;
+                LOGGER.w("Spawn for service record %s failed with %d waiting connection(s); respawning (attempt %d/%d)",
+                        record.token, record.callbacks.getRegisteredCallbackCount(), record.spawnAttempts, MAX_SPAWN_RETRIES);
+                executor.execute(record.spawnRunnable);
+                return;
+            }
+            removeUserServiceLocked(record);
+        }
+    }
+
+    private static final int MAX_SPAWN_RETRIES = 3;
 
     public abstract String getUserServiceStartCmd(
             UserServiceRecord record, String key, String token, String packageName,
@@ -249,13 +280,32 @@ public abstract class UserServiceManager {
         }
 
         if (entry == null) {
-            throw new IllegalArgumentException("unable to find token " + token);
+            LOGGER.w("Attach for unknown/expired token %s: no matching record, destroying the attaching binder instead", token);
+            destroyUnknownBinder(binder);
+            return;
         }
 
         LOGGER.v("Received binder for service record %s", token);
 
         UserServiceRecord record = entry.getValue();
         record.setBinder(binder);
+    }
+
+    private void destroyUnknownBinder(IBinder binder) {
+        if (binder == null || !binder.pingBinder()) {
+            return;
+        }
+        Parcel data = Parcel.obtain();
+        Parcel reply = Parcel.obtain();
+        try {
+            data.writeInterfaceToken(binder.getInterfaceDescriptor());
+            binder.transact(ShizukuApiConstants.USER_SERVICE_TRANSACTION_destroy, data, reply, Binder.FLAG_ONEWAY);
+        } catch (Throwable e) {
+            LOGGER.w("Failed to destroy unknown/orphaned user service binder", e);
+        } finally {
+            data.recycle();
+            reply.recycle();
+        }
     }
 
     public void attachUserService(IBinder binder, Bundle options) {
