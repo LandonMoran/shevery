@@ -85,12 +85,15 @@ class AdbPairingService : Service() {
                 onStart()
             }
             replyAction -> {
-                val code = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(remoteInputResultKey) ?: ""
+                val raw = (RemoteInput.getResultsFromIntent(intent)?.getCharSequence(remoteInputResultKey) ?: "")
+                    .toString()
+                val code = raw.filter { !it.isWhitespace() }
                 val port = intent.getIntExtra(portKey, -1)
-                if (port != -1) {
-                    onInput(code.toString(), port)
-                } else {
-                    onStart()
+                when {
+                    code.isEmpty() && port != -1 -> createInputNotification(port)
+                    code.isEmpty() -> onStart()
+                    port != -1 -> onInput(code, port)
+                    else -> onStart()
                 }
             }
             stopAction -> {
