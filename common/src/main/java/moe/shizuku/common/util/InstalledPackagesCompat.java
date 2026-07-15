@@ -31,15 +31,30 @@ public final class InstalledPackagesCompat {
     @SuppressWarnings("unchecked")
     public static List<PackageInfo> getInstalledPackages(long flags, int userId) throws ReflectiveOperationException {
         try {
+            List<PackageInfo> packages = getInstalledPackagesViaBinder(flags, userId);
+            if (!packages.isEmpty()) {
+                return packages;
+            }
+        } catch (NoSuchMethodException ignored) {
+        } catch (Exception e) {
+            Log.d(TAG, "getInstalledPackages via hidden IPackageManager failed, falling back to context PackageManager", e);
+        }
+
+        try {
             Object packageManager = getContextPackageManager();
             Method method = packageManager.getClass().getMethod("getInstalledPackagesAsUser", int.class, int.class);
             Object result = invoke(method, packageManager, (int) flags, userId);
             return result == null ? Collections.emptyList() : (List<PackageInfo>) result;
         } catch (NoSuchMethodException ignored) {
         } catch (Exception e) {
-            Log.d(TAG, "getInstalledPackagesAsUser failed, falling back to hidden API", e);
+            Log.d(TAG, "getInstalledPackagesAsUser fallback failed", e);
         }
 
+        return Collections.emptyList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<PackageInfo> getInstalledPackagesViaBinder(long flags, int userId) throws ReflectiveOperationException {
         Object packageManager = getPackageManager();
         Method method;
         Object result;
