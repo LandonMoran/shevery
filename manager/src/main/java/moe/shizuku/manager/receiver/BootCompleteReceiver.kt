@@ -16,10 +16,8 @@ import kotlinx.coroutines.launch
 import moe.shizuku.manager.AppConstants
 import moe.shizuku.manager.ShizukuSettings
 import moe.shizuku.manager.ShizukuSettings.LaunchMethod
-import moe.shizuku.manager.adb.AdbClient
-import moe.shizuku.manager.adb.AdbKey
+import moe.shizuku.manager.adb.AdbStarter
 import moe.shizuku.manager.adb.AdbMdns
-import moe.shizuku.manager.adb.PreferenceAdbKeyStore
 import moe.shizuku.manager.starter.Starter
 import moe.shizuku.manager.utils.UserHandleCompat
 import rikka.shizuku.Shizuku
@@ -68,16 +66,15 @@ class BootCompleteReceiver : BroadcastReceiver() {
             val latch = CountDownLatch(1)
             val adbMdns = AdbMdns(context, AdbMdns.TLS_CONNECT) { port ->
                 if (port <= 0) return@AdbMdns
-                try {
-                    val keystore = PreferenceAdbKeyStore(ShizukuSettings.getPreferences())
-                    val key = AdbKey(keystore, "shizuku")
-                    val client = AdbClient("127.0.0.1", port, key)
-                    client.connect()
-                    client.shellCommand(Starter.internalCommand, null)
-                    client.close()
-                } catch (_: Exception) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        AdbStarter.start(port = port, context = context.applicationContext)
+                    } catch (e: Exception) {
+                        Log.w(AppConstants.TAG, "ADB boot start failed", e)
+                    } finally {
+                        latch.countDown()
+                    }
                 }
-                latch.countDown()
             }
             if (Settings.Global.getInt(cr, "adb_wifi_enabled", 0) == 1) {
                 adbMdns.start()

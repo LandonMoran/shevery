@@ -18,10 +18,8 @@ import kotlinx.coroutines.launch
 import moe.shizuku.manager.AppConstants.EXTRA
 import moe.shizuku.manager.R
 import moe.shizuku.manager.ShizukuSettings
-import moe.shizuku.manager.adb.AdbClient
-import moe.shizuku.manager.adb.AdbKey
+import moe.shizuku.manager.adb.AdbStarter
 import moe.shizuku.manager.adb.AdbKeyException
-import moe.shizuku.manager.adb.PreferenceAdbKeyStore
 import moe.shizuku.manager.app.AppActivity
 import moe.shizuku.manager.ui.compose.ExpressiveCard
 import moe.shizuku.manager.ui.compose.HtmlText
@@ -183,6 +181,8 @@ class StarterActivity : AppActivity() {
 
 private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host: String?, port: Int) : androidx.lifecycle.ViewModel() {
 
+    private val appContext = context.applicationContext
+
     private val sb = StringBuilder()
     private val outputLock = Any()
     private val _output = MutableLiveData<Resource<String>>()
@@ -271,28 +271,22 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
         postResult()
 
         viewModelScope.launch(Dispatchers.IO) {
-            val key = try {
-                AdbKey(PreferenceAdbKeyStore(ShizukuSettings.getPreferences()), "shizuku")
-            } catch (e: Throwable) {
-                e.printStackTrace()
-                appendLine("\n${Log.getStackTraceString(e)}")
-
-                postResult(AdbKeyException(e))
-                return@launch
-            }
-
-            AdbClient(host, port, key).runCatching {
-                connect()
-                ShizukuSettings.setLastLaunchMode(ShizukuSettings.LaunchMethod.ADB)
-                shellCommand(Starter.internalCommand) {
+            runCatching {
+                AdbStarter.start(host, port, context = appContext, listener = {
                     synchronized(outputLock) {
                         sb.append(String(it))
                     }
                     postResult()
-                }
-                close()
+                }, log = {
+                    appendLine(it)
+                })
             }.onFailure {
                 it.printStackTrace()
+
+                if (it is java.security.GeneralSecurityException) {
+                    postResult(AdbKeyException(it))
+                    return@onFailure
+                }
 
                 appendLine("\n${Log.getStackTraceString(it)}")
                 postResult(it)

@@ -80,9 +80,9 @@ class AdbClient(private val host: String, private val port: Int, private val key
         if (message.command != A_CNXN) error("not A_CNXN")
     }
 
-    fun shellCommand(command: String, listener: ((ByteArray) -> Unit)?) {
+    fun command(command: String, listener: ((ByteArray) -> Unit)? = null) {
         val localId = 1
-        write(A_OPEN, localId, 0, "shell:$command")
+        write(A_OPEN, localId, 0, command)
 
         var message = read()
         when (message.command) {
@@ -112,6 +112,8 @@ class AdbClient(private val host: String, private val port: Int, private val key
             }
         }
     }
+
+    fun shellCommand(command: String, listener: ((ByteArray) -> Unit)?) = this.command("shell:$command", listener)
 
     private fun write(command: Int, arg0: Int, arg1: Int, data: ByteArray? = null) = write(AdbMessage(command, arg0, arg1, data))
 

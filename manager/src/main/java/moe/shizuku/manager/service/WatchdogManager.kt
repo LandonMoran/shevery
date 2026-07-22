@@ -19,6 +19,7 @@ import moe.shizuku.manager.R
 import moe.shizuku.manager.ShizukuSettings
 import moe.shizuku.manager.ShizukuSettings.LaunchMethod
 import moe.shizuku.manager.adb.AdbClient
+import moe.shizuku.manager.adb.AdbStarter
 import moe.shizuku.manager.adb.AdbKey
 import moe.shizuku.manager.adb.AdbMdns
 import moe.shizuku.manager.adb.PreferenceAdbKeyStore
@@ -277,21 +278,20 @@ object WatchdogManager {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
 
         var restarted = false
+        val startAttempted = AtomicBoolean(false)
         val latch = CountDownLatch(1)
         val adbMdns = AdbMdns(context, AdbMdns.TLS_CONNECT) { port ->
-            if (port <= 0 || restarted) return@AdbMdns
-            try {
-                val keystore = PreferenceAdbKeyStore(ShizukuSettings.getPreferences())
-                val key = AdbKey(keystore, "shizuku")
-                AdbClient("127.0.0.1", port, key).use { client ->
-                    client.connect()
-                    client.shellCommand(Starter.internalCommand) { _ -> }
+            if (port <= 0 || restarted || !startAttempted.compareAndSet(false, true)) return@AdbMdns
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    AdbStarter.start(port = port, context = context.applicationContext, listener = { _ -> })
+                    restarted = true
+                    logi("Restart via Wireless ADB successful from discovered port $port")
+                } catch (e: Exception) {
+                    logd("Restart via Wireless ADB failed on port $port: ${e.message}")
+                } finally {
+                    latch.countDown()
                 }
-                restarted = true
-                logi("Restart via Wireless ADB successful on port $port")
-                latch.countDown()
-            } catch (e: Exception) {
-                logd("Restart via Wireless ADB failed on port $port: ${e.message}")
             }
         }
 
