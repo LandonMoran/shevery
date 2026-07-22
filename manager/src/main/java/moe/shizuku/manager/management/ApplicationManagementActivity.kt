@@ -105,7 +105,10 @@ class ApplicationManagementActivity : AppActivity() {
 
                             Box {
                                 IconButton(onClick = { menuExpanded = true }) {
-                                    ShizukuIcon(R.drawable.ic_more_vert_24)
+                                    ShizukuIcon(
+                                        R.drawable.ic_more_vert_24,
+                                        contentDescription = stringResource(R.string.accessibility_more_options)
+                                    )
                                 }
                                 DropdownMenu(
                                     expanded = menuExpanded,

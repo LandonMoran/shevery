@@ -147,6 +147,7 @@ fun ShizukuScaffold(
     modifier: Modifier = Modifier,
     onNavigateUp: (() -> Unit)? = null,
     navigationIcon: Int = R.drawable.ic_arrow_back_24,
+    @StringRes navigationContentDescription: Int = R.string.accessibility_navigate_up,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable (PaddingValues) -> Unit
 ) {
@@ -165,7 +166,10 @@ fun ShizukuScaffold(
                 navigationIcon = {
                     if (onNavigateUp != null) {
                         IconButton(onClick = onNavigateUp) {
-                            ShizukuIcon(navigationIcon)
+                            ShizukuIcon(
+                                navigationIcon,
+                                contentDescription = stringResource(navigationContentDescription)
+                            )
                         }
                     }
                 },
@@ -186,6 +190,7 @@ fun ShizukuLazyScaffold(
     modifier: Modifier = Modifier,
     onNavigateUp: (() -> Unit)? = null,
     navigationIcon: Int = R.drawable.ic_arrow_back_24,
+    @StringRes navigationContentDescription: Int = R.string.accessibility_navigate_up,
     actions: @Composable RowScope.() -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 16.dp),
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(10.dp),
@@ -196,6 +201,7 @@ fun ShizukuLazyScaffold(
         modifier = modifier,
         onNavigateUp = onNavigateUp,
         navigationIcon = navigationIcon,
+        navigationContentDescription = navigationContentDescription,
         actions = actions
     ) { innerPadding ->
         LazyColumn(

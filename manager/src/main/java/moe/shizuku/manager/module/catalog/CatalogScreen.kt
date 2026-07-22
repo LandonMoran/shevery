@@ -478,12 +478,19 @@ private fun ModuleDetailScreen(
                 title = { Text(module.moduleName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Back"
+                        )
                     }
                 },
                 actions = {
                     IconButton(onClick = onViewOnGitHub) {
-                        ShizukuIcon(R.drawable.ic_outline_open_in_new_24, modifier = Modifier.size(20.dp))
+                        ShizukuIcon(
+                            R.drawable.ic_outline_open_in_new_24,
+                            contentDescription = stringResource(R.string.accessibility_open_on_github),
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             )

@@ -671,7 +671,7 @@ private fun HomeScreen(
                         IconButton(onClick = { moreOpen = true }) {
                             ShizukuIcon(
                                 icon = R.drawable.ic_more_vert_24,
-                                contentDescription = null
+                                contentDescription = stringResource(R.string.accessibility_more_options)
                             )
                         }
                         DropdownMenu(

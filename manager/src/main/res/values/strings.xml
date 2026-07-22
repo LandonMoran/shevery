@@ -4,6 +4,12 @@
     <!-- To translators: you can leave your here -->
     <string name="translation_contributors" />
 
+    <!-- Accessibility -->
+    <string name="accessibility_navigate_up">Navigate up</string>
+    <string name="accessibility_close">Close</string>
+    <string name="accessibility_more_options">More options</string>
+    <string name="accessibility_open_on_github">Open on GitHub</string>
+
     <!-- Home - Status -->
     <string name="home_status_service_is_running">%1$s is running</string>
     <string name="home_status_service_not_running">%1$s is not running</string>

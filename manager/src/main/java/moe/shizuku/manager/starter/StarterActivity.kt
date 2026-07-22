@@ -137,7 +137,8 @@ class StarterActivity : AppActivity() {
                 ShizukuLazyScaffold(
                     title = stringResource(R.string.starter),
                     onNavigateUp = { finish() },
-                    navigationIcon = R.drawable.ic_close_24
+                    navigationIcon = R.drawable.ic_close_24,
+                    navigationContentDescription = R.string.accessibility_close
                 ) {
                     item {
                         val startedWithRoot = intent.getBooleanExtra(EXTRA_IS_ROOT, true)
