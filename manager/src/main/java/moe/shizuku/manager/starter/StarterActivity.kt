@@ -69,8 +69,16 @@ class StarterActivity : AppActivity() {
 
         viewModel.output.observe(this) {
             val output = it.data.orEmpty().trim()
-            val finished = output.endsWith("info: shizuku_starter exit with 0") || (startedWithDhizuku && output.endsWith("✓ Initialization complete."))
-            if (!waitingForService && finished) {
+            val dhizukuFinished = startedWithDhizuku && output.endsWith("✓ Shevery binder verified.")
+            val finished = output.endsWith("info: shizuku_starter exit with 0")
+            if (!waitingForService && dhizukuFinished) {
+                waitingForService = true
+                moe.shizuku.manager.service.WatchdogManager.clearUserStopRequest()
+                viewModel.appendOutput("Service started, this window will be automatically closed in 3 seconds")
+                window?.decorView?.postDelayed({
+                    if (!isFinishing) finish()
+                }, 3000)
+            } else if (!waitingForService && finished) {
                 waitingForService = true
                 viewModel.appendOutput("")
                 viewModel.appendOutput("Waiting for service...")
@@ -80,6 +88,7 @@ class StarterActivity : AppActivity() {
                         Shizuku.removeBinderReceivedListener(this)
                         binderReceivedListener = null
                         runOnUiThread {
+                            moe.shizuku.manager.service.WatchdogManager.clearUserStopRequest()
                             viewModel.appendOutput("Service started, this window will be automatically closed in 3 seconds")
                             window?.decorView?.postDelayed({
                                 if (!isFinishing) finish()
@@ -290,6 +299,15 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
         }
     }
 
+    private suspend fun waitForShizukuBinder(timeoutMs: Long = 10_000L): Boolean {
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
+        while (android.os.SystemClock.elapsedRealtime() < deadline) {
+            if (Shizuku.pingBinder()) return true
+            kotlinx.coroutines.delay(500)
+        }
+        return Shizuku.pingBinder()
+    }
+
     private fun startDhizuku(context: Context) {
         synchronized(outputLock) {
             sb.append("Starting with Dhizuku (Device Owner)...").append('\n').append('\n')
@@ -330,36 +348,31 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
                     android.content.ComponentName(context.applicationContext, moe.shizuku.manager.dhizuku.DhizukuService::class.java)
                 )
                 var connection: android.content.ServiceConnection? = null
-                val serviceResult = kotlinx.coroutines.withTimeoutOrNull(10000) {
-                    kotlinx.coroutines.suspendCancellableCoroutine<android.os.IBinder?> { cont ->
-                        val conn = object : android.content.ServiceConnection {
-                            override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
-                                if (cont.isActive) cont.resumeWith(Result.success(service))
+                try {
+                    val serviceResult = kotlinx.coroutines.withTimeoutOrNull(10000) {
+                        kotlinx.coroutines.suspendCancellableCoroutine<android.os.IBinder?> { cont ->
+                            val conn = object : android.content.ServiceConnection {
+                                override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
+                                    if (cont.isActive) cont.resumeWith(Result.success(service))
+                                }
+                                override fun onServiceDisconnected(name: android.content.ComponentName?) {}
                             }
-                            override fun onServiceDisconnected(name: android.content.ComponentName?) {}
-                        }
-                        connection = conn
-                        val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, conn)
-                        if (!bound && cont.isActive) {
-                            cont.resumeWith(Result.success(null))
-                        }
-                        cont.invokeOnCancellation {
-                            try {
-                                com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
-                            } catch (e: Exception) { }
+                            connection = conn
+                            val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, conn)
+                            if (!bound && cont.isActive) {
+                                cont.resumeWith(Result.success(null))
+                            }
                         }
                     }
-                }
 
-                if (serviceResult == null) {
-                    appendLine("✗ Dhizuku service binding failed or timed out.")
-                    appendLine("  Make sure Dhizuku is set as Device Owner and is active.")
-                    postResult(DhizukuException("Dhizuku service binding failed"))
-                    return@launch
-                }
-                appendLine("✓ Dhizuku service connected\n")
+                    if (serviceResult == null) {
+                        appendLine("✗ Dhizuku service binding failed or timed out.")
+                        appendLine("  Make sure Dhizuku is set as Device Owner and is active.")
+                        postResult(DhizukuException("Dhizuku service binding failed"))
+                        return@launch
+                    }
+                    appendLine("✓ Dhizuku service connected\n")
 
-                try {
                     val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
 
                     appendLine("Executing Shevery starter directly via Dhizuku Device Owner...")
@@ -368,9 +381,15 @@ private class ViewModel(context: Context, root: Boolean, dhizuku: Boolean, host:
 
                     appendLine("✓ Starter command sent to Dhizuku shell.")
                     appendLine("Waiting for Shevery service to initialize...")
-                    kotlinx.coroutines.delay(3000)
-                    appendLine("✓ Initialization complete.")
-                    postResult()
+                    if (waitForShizukuBinder()) {
+                        appendLine("✓ Shevery binder verified.")
+                        postResult()
+                    } else {
+                        appendLine("✗ Starter command completed, but Shevery service did not become available.")
+                        appendLine("  Direct Dhizuku startup can fail when the Device Owner context cannot provide the same shell/root environment as ADB or root.")
+                        appendLine("  Try starting with Wireless ADB or root, then copy diagnostics if this repeats.")
+                        postResult(DhizukuException("Dhizuku starter did not publish a Shevery binder"))
+                    }
                 } finally {
                     connection?.let { conn ->
                         try {

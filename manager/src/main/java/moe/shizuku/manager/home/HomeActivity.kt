@@ -153,6 +153,12 @@ abstract class HomeActivity : AppActivity() {
         }
     }
 
+    private val manageAppsLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        appsModel.load(onlyCount = true)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -247,7 +253,7 @@ abstract class HomeActivity : AppActivity() {
                                     },
                                     onAbout = ::showAboutDialog,
                                     onStop = ::showStopDialog,
-                                    onManageApps = { startActivity(Intent(this@HomeActivity, ApplicationManagementActivity::class.java)) },
+                                    onManageApps = { manageAppsLauncher.launch(Intent(this@HomeActivity, ApplicationManagementActivity::class.java)) },
                                     onTerminal = { startActivity(Intent(this@HomeActivity, ShellTutorialActivity::class.java)) },
                                     onStartRoot = ::startRoot,
                                     onStartWirelessAdb = { runWithLocalNetworkAccess(::startWirelessAdb) },
@@ -315,17 +321,14 @@ abstract class HomeActivity : AppActivity() {
         MaterialAlertDialogBuilder(this)
             .setMessage(R.string.dialog_stop_message)
             .setPositiveButton(android.R.string.ok) { _: DialogInterface?, _: Int ->
-                try {
-                    moe.shizuku.manager.service.WatchdogManager.expectingDeath = true
-                    Shizuku.exit()
-                } catch (_: Throwable) {
-                }
+                moe.shizuku.manager.service.WatchdogManager.stopServer(userInitiated = true)
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
 
     private fun startRoot() {
+        moe.shizuku.manager.service.WatchdogManager.clearUserStopRequest()
         startActivity(
             Intent(this, StarterActivity::class.java).apply {
                 putExtra(StarterActivity.EXTRA_IS_ROOT, true)
@@ -334,6 +337,7 @@ abstract class HomeActivity : AppActivity() {
     }
 
     private fun startWirelessAdb() {
+        moe.shizuku.manager.service.WatchdogManager.clearUserStopRequest()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             AdbDialogFragment().show(supportFragmentManager, "adb")
             return
@@ -436,6 +440,7 @@ abstract class HomeActivity : AppActivity() {
         Toast.makeText(this, R.string.home_diagnostics_copied, Toast.LENGTH_SHORT).show()
     }
     private fun startDhizukuMode() {
+        moe.shizuku.manager.service.WatchdogManager.clearUserStopRequest()
         startActivity(
             Intent(this, StarterActivity::class.java).apply {
                 putExtra(StarterActivity.EXTRA_IS_ROOT, false)
@@ -445,6 +450,7 @@ abstract class HomeActivity : AppActivity() {
     }
 
     private fun bindTcp5555() {
+        moe.shizuku.manager.service.WatchdogManager.clearUserStopRequest()
         lifecycleScope.launch(Dispatchers.IO) {
             var success = false
             var failureReason = getString(R.string.settings_tcp_5555_bind_failed_generic)

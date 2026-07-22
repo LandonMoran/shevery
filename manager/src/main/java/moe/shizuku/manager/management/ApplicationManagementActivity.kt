@@ -165,6 +165,7 @@ class ApplicationManagementActivity : AppActivity() {
                                                 tick = tick,
                                                 onLimitedAdb = ::showAdbLimitedDialog,
                                                 onPermissionChanged = {
+                                                    setResult(RESULT_OK)
                                                     permissionTick.intValue++
                                                     viewModel.load(onlyCount = true)
                                                 }
@@ -187,6 +188,7 @@ class ApplicationManagementActivity : AppActivity() {
     }
 
     private fun selectAll(packages: List<PackageInfo>, granted: Boolean) {
+        var changed = false
         packages.forEach { packageInfo ->
             val applicationInfo = packageInfo.applicationInfo ?: return@forEach
             val uid = applicationInfo.uid
@@ -197,8 +199,12 @@ class ApplicationManagementActivity : AppActivity() {
                 } else {
                     AuthorizationManager.revoke(packageName, uid)
                 }
+                changed = true
             } catch (_: SecurityException) {
             }
+        }
+        if (changed) {
+            setResult(RESULT_OK)
         }
         permissionTick.intValue++
         viewModel.load(onlyCount = true)

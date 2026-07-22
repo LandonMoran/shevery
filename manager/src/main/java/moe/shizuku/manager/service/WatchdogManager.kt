@@ -39,6 +39,7 @@ object WatchdogManager {
     private const val EXPECTED_DEATH_WINDOW_MS = 10_000L
     private const val WIRELESS_ADB_DISCOVERY_TIMEOUT_SECONDS = 5L
     private const val DHIZUKU_BIND_TIMEOUT_MS = 10_000L
+    private const val KEY_USER_STOP_REQUESTED = "watchdog_user_stop_requested"
 
     @Volatile
     var expectingDeath = false
@@ -59,12 +60,21 @@ object WatchdogManager {
 
     private val restartInProgress = AtomicBoolean(false)
 
+    @Volatile
+    private var userStopRequested = false
+
     fun init(context: Context) {
         val appContext = context.applicationContext
         if (initialized) return
         initialized = true
 
+        userStopRequested = ShizukuSettings.getPreferences().getBoolean(KEY_USER_STOP_REQUESTED, false)
+
         logi("Initializing service watchdog")
+
+        Shizuku.addBinderReceivedListenerSticky {
+            clearUserStopRequest()
+        }
 
         Shizuku.addBinderDeadListener {
             onServiceDied(appContext)
@@ -83,7 +93,7 @@ object WatchdogManager {
         logd("Service died detected by watchdog")
 
         if (consumeExpectedDeath()) {
-            logi("Service death was expected (user stopped it). Resetting flag.")
+            logi("Service death was expected. Resetting expected-death flag.")
             return
         }
 
@@ -150,9 +160,31 @@ object WatchdogManager {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
+    fun clearUserStopRequest() {
+        setUserStopRequested(false)
+        expectingDeath = false
+    }
+
+    private fun setUserStopRequested(value: Boolean) {
+        userStopRequested = value
+        ShizukuSettings.getPreferences()
+            .edit()
+            .putBoolean(KEY_USER_STOP_REQUESTED, value)
+            .apply()
+    }
+
+    private fun isUserStopRequested(): Boolean {
+        return userStopRequested || ShizukuSettings.getPreferences().getBoolean(KEY_USER_STOP_REQUESTED, false)
+    }
+
     fun attemptRestart(context: Context) {
         val appContext = context.applicationContext
         clearExpectedDeathWhenStale()
+
+        if (isUserStopRequested()) {
+            logi("Skipping watchdog restart because the last stop was user-initiated")
+            return
+        }
 
         if (!restartInProgress.compareAndSet(false, true)) {
             logd("Restart already in progress, skipping duplicate watchdog restart")
@@ -175,12 +207,18 @@ object WatchdogManager {
         }
     }
 
-    fun stopServer() {
+    fun stopServer(userInitiated: Boolean = true) {
+        if (userInitiated) {
+            setUserStopRequested(true)
+        }
         expectingDeath = true
         try {
             Shizuku.exit()
         } catch (_: Throwable) {
             expectingDeath = false
+            if (userInitiated) {
+                setUserStopRequested(false)
+            }
         }
     }
 
@@ -266,6 +304,15 @@ object WatchdogManager {
         }
     }
 
+    private suspend fun waitForShizukuBinder(timeoutMs: Long = 10_000L): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (Shizuku.pingBinder()) return true
+            kotlinx.coroutines.delay(500)
+        }
+        return Shizuku.pingBinder()
+    }
+
     private suspend fun restartDhizuku(context: Context) {
         try {
             logi("Watchdog attempting Dhizuku restart...")
@@ -282,35 +329,37 @@ object WatchdogManager {
                 android.content.ComponentName(context.applicationContext, moe.shizuku.manager.dhizuku.DhizukuService::class.java)
             )
             var connection: android.content.ServiceConnection? = null
-            val serviceResult = withTimeoutOrNull(DHIZUKU_BIND_TIMEOUT_MS) {
-                suspendCancellableCoroutine<android.os.IBinder?> { cont ->
-                    val conn = object : android.content.ServiceConnection {
-                        override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
-                            if (cont.isActive) cont.resumeWith(Result.success(service))
+            try {
+                val serviceResult = withTimeoutOrNull(DHIZUKU_BIND_TIMEOUT_MS) {
+                    suspendCancellableCoroutine<android.os.IBinder?> { cont ->
+                        val conn = object : android.content.ServiceConnection {
+                            override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
+                                if (cont.isActive) cont.resumeWith(Result.success(service))
+                            }
+                            override fun onServiceDisconnected(name: android.content.ComponentName?) {}
                         }
-                        override fun onServiceDisconnected(name: android.content.ComponentName?) {}
-                    }
-                    connection = conn
-                    val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, conn)
-                    if (!bound && cont.isActive) {
-                        cont.resumeWith(Result.success(null))
-                    }
-                    cont.invokeOnCancellation {
-                        try {
-                            com.rosan.dhizuku.api.Dhizuku.unbindUserService(conn)
-                        } catch (e: Exception) { }
+                        connection = conn
+                        val bound = com.rosan.dhizuku.api.Dhizuku.bindUserService(userServiceArgs, conn)
+                        if (!bound && cont.isActive) {
+                            cont.resumeWith(Result.success(null))
+                        }
                     }
                 }
-            }
-            if (serviceResult == null) {
-                logd("Dhizuku service binding failed or timed out in watchdog")
-                return
-            }
-            try {
+                if (serviceResult == null) {
+                    logd("Dhizuku service binding failed or timed out in watchdog")
+                    return
+                }
                 val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
                 logi("Watchdog executing Shevery starter directly via Dhizuku Device Owner...")
                 dhizukuService.runCommand(Starter.internalCommand)
-                logi("Watchdog started Shevery server via Dhizuku shell successfully")
+                if (waitForShizukuBinder()) {
+                    logi("Watchdog verified Shevery binder after Dhizuku restart")
+                } else {
+                    logd("Watchdog Dhizuku starter command completed, but binder did not become available")
+                    if (ModuleSettings.isNotifyOnServiceDeath()) {
+                        showDeathNotification(context)
+                    }
+                }
             } finally {
                 connection?.let { conn ->
                     try {
