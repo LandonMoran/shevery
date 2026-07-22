@@ -339,18 +339,7 @@ abstract class HomeActivity : AppActivity() {
             return
         }
 
-        val port = EnvironmentUtils.getAdbTcpPort()
-        if (port > 0) {
-            startActivity(
-                Intent(this, StarterActivity::class.java).apply {
-                    putExtra(StarterActivity.EXTRA_IS_ROOT, false)
-                    putExtra(StarterActivity.EXTRA_HOST, "127.0.0.1")
-                    putExtra(StarterActivity.EXTRA_PORT, port)
-                }
-            )
-        } else {
-            WadbNotEnabledDialogFragment().show(supportFragmentManager, "wadb_not_enabled")
-        }
+        WadbNotEnabledDialogFragment().show(supportFragmentManager, "wadb_not_enabled")
     }
 
     private fun pairWirelessAdb() {
@@ -583,7 +572,7 @@ private fun HomeScreen(
     val grantedCount = grantedResource?.data ?: 0
     val running = status.isRunning
     val adbPermission = status.permission
-    val canUseWirelessAdb = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R || EnvironmentUtils.getAdbTcpPort() > 0
+    val canUseWirelessAdb = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
     var moreOpen by remember { mutableStateOf(false) }
     val diagnostics = remember(status, grantedCount, localNetworkPermissionState) {
         buildDiagnostics(context, status, grantedCount, localNetworkPermissionState)

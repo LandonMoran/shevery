@@ -73,7 +73,7 @@ class AdbDialogFragment : DialogFragment() {
             setNegativeButton(android.R.string.cancel, null)
             setPositiveButton(R.string.development_settings, null)
 
-            if (port != -1) {
+            if (isValidAdbPort(port)) {
                 setNeutralButton("$port", null)
             }
         }
@@ -119,6 +119,8 @@ class AdbDialogFragment : DialogFragment() {
     }
 
     private fun startAndDismiss(port: Int) {
+        if (!isValidAdbPort(port)) return
+
         val host = "127.0.0.1"
         val intent = Intent(context, StarterActivity::class.java).apply {
             putExtra(StarterActivity.EXTRA_IS_ROOT, false)
@@ -133,5 +135,9 @@ class AdbDialogFragment : DialogFragment() {
     fun show(fragmentManager: FragmentManager) {
         if (fragmentManager.isStateSaved) return
         show(fragmentManager, javaClass.simpleName)
+    }
+
+    private fun isValidAdbPort(port: Int): Boolean {
+        return port in 1..65535
     }
 }
