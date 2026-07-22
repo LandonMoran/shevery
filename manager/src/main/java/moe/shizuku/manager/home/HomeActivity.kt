@@ -133,12 +133,12 @@ abstract class HomeActivity : AppActivity() {
     private var pendingLocalNetworkAction: (() -> Unit)? = null
 
     private val localNetworkPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
         permissionRefreshTick.intValue++
         val action = pendingLocalNetworkAction
         pendingLocalNetworkAction = null
-        if (granted) {
+        if (buildLocalNetworkPermissionState().granted) {
             action?.invoke()
         } else {
             Toast.makeText(this, R.string.home_local_network_permission_denied, Toast.LENGTH_LONG).show()
@@ -263,7 +263,7 @@ abstract class HomeActivity : AppActivity() {
                                     },
                                     onStartDhizuku = { startDhizukuMode() },
                                     dhizukuEnabled = ModuleSettings.isDhizukuEnabled(),
-                                    onStartTcp5555 = ::bindTcp5555
+                                    onStartTcp5555 = { runWithLocalNetworkAccess(::bindTcp5555) }
                                 )
                                 1 -> moe.shizuku.manager.module.ModulesScreen(onOpenWebUi = {
                                     startActivity(
@@ -394,7 +394,7 @@ abstract class HomeActivity : AppActivity() {
         }
 
         pendingLocalNetworkAction = action
-        localNetworkPermissionLauncher.launch(state.permission!!)
+        localNetworkPermissionLauncher.launch(state.missingPermissions.toTypedArray())
     }
 
     private fun requestLocalNetworkPermission(onGranted: () -> Unit) {
@@ -405,21 +405,28 @@ abstract class HomeActivity : AppActivity() {
         }
 
         pendingLocalNetworkAction = onGranted
-        localNetworkPermissionLauncher.launch(state.permission!!)
+        localNetworkPermissionLauncher.launch(state.missingPermissions.toTypedArray())
     }
 
     private fun buildLocalNetworkPermissionState(): LocalNetworkPermissionState {
-        val permission = when {
-            Build.VERSION.SDK_INT >= SDK_ANDROID_17 -> PERMISSION_ACCESS_LOCAL_NETWORK
-            Build.VERSION.SDK_INT >= SDK_ANDROID_13 -> Manifest.permission.NEARBY_WIFI_DEVICES
-            else -> null
+        val permissions = buildList {
+            if (Build.VERSION.SDK_INT >= SDK_ANDROID_17) {
+                add(PERMISSION_ACCESS_LOCAL_NETWORK)
+                if (isPermissionDefined(PERMISSION_USE_LOOPBACK_INTERFACE)) {
+                    add(PERMISSION_USE_LOOPBACK_INTERFACE)
+                }
+            }
+            if (Build.VERSION.SDK_INT >= SDK_ANDROID_13) {
+                add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            }
+        }
+        val missingPermissions = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
 
         return LocalNetworkPermissionState(
-            permission = permission,
-            required = permission != null,
-            granted = permission == null ||
-                    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+            permissions = permissions,
+            missingPermissions = missingPermissions
         )
     }
 
@@ -440,6 +447,14 @@ abstract class HomeActivity : AppActivity() {
     private fun bindTcp5555() {
         lifecycleScope.launch(Dispatchers.IO) {
             var success = false
+            var failureReason = getString(R.string.settings_tcp_5555_bind_failed_generic)
+
+            fun recordBindFailure(route: String, reason: String, throwable: Throwable? = null) {
+                val message = "$route: $reason"
+                failureReason = message
+                android.util.Log.d("Shevery", "Failed to bind TCP 5555 via $message", throwable)
+            }
+
             // 1. Try via Dhizuku if enabled
             if (ModuleSettings.isDhizukuEnabled()) {
                 try {
@@ -466,28 +481,42 @@ abstract class HomeActivity : AppActivity() {
                         }
                         if (serviceResult != null) {
                             val dhizukuService = moe.shizuku.manager.dhizuku.IDhizukuService.Stub.asInterface(serviceResult)
-                            dhizukuService.bindAdbTcp(5555)
-                            success = true
+                            success = dhizukuService.bindAdbTcp(5555) && waitForAdbTcpPort(5555)
+                            if (!success) {
+                                recordBindFailure("Dhizuku", "command finished but port 5555 did not become live")
+                            }
                             connection?.let {
                                 try { com.rosan.dhizuku.api.Dhizuku.unbindUserService(it) } catch (_: Exception) {}
                             }
+                        } else {
+                            recordBindFailure("Dhizuku", "service binding failed or timed out")
                         }
+                    } else if (!initResult) {
+                        recordBindFailure("Dhizuku", "initialization failed")
+                    } else {
+                        recordBindFailure("Dhizuku", "permission is not granted")
                     }
                 } catch (e: Exception) {
-                    android.util.Log.d("Shevery", "Failed to bind TCP via Dhizuku: ${e.message}")
+                    recordBindFailure("Dhizuku", e.message ?: e.javaClass.simpleName, e)
                 }
             }
 
             // 2. Try via Root if not success
             if (!success && EnvironmentUtils.isRooted()) {
                 try {
-                    val result = com.topjohnwu.superuser.Shell.cmd("setprop service.adb.tcp.port 5555 && stop adbd && start adbd").exec()
-                    if (result.isSuccess) {
-                        success = true
+                    val result = com.topjohnwu.superuser.Shell.cmd(ADB_TCP_BIND_COMMAND).exec()
+                    success = result.isSuccess && waitForAdbTcpPort(5555)
+                    if (!success) {
+                        recordBindFailure(
+                            "root",
+                            "command exit code ${result.code}, port 5555 live: ${EnvironmentUtils.isAdbPortLive(5555)}"
+                        )
                     }
                 } catch (e: Exception) {
-                    android.util.Log.d("Shevery", "Failed to bind TCP via Root: ${e.message}")
+                    recordBindFailure("root", e.message ?: e.javaClass.simpleName, e)
                 }
+            } else if (!success) {
+                recordBindFailure("root", "root shell is unavailable")
             }
 
             // 3. Try via Shizuku shell if running
@@ -496,41 +525,78 @@ abstract class HomeActivity : AppActivity() {
                     val binder = Shizuku.getBinder()
                     if (binder != null) {
                         val service = moe.shizuku.server.IShizukuService.Stub.asInterface(binder)
-                        val process = service.newProcess(arrayOf("sh", "-c", "setprop service.adb.tcp.port 5555 && stop adbd && start adbd"), null, null)
-                        process.waitFor()
-                        success = true
+                        val process = service.newProcess(arrayOf("sh", "-c", ADB_TCP_BIND_COMMAND), null, null)
+                        val exitCode = process.waitFor()
+                        success = exitCode == 0 && waitForAdbTcpPort(5555)
+                        if (!success) {
+                            recordBindFailure(
+                                "Shevery",
+                                "command exit code $exitCode, port 5555 live: ${EnvironmentUtils.isAdbPortLive(5555)}"
+                            )
+                        }
+                    } else {
+                        recordBindFailure("Shevery", "binder was null")
                     }
                 } catch (e: Exception) {
-                    android.util.Log.d("Shevery", "Failed to bind TCP via Shizuku: ${e.message}")
+                    recordBindFailure("Shevery", e.message ?: e.javaClass.simpleName, e)
                 }
+            } else if (!success) {
+                recordBindFailure("Shevery", "binder is not active")
             }
 
             withContext(Dispatchers.Main) {
                 if (success) {
-                    Toast.makeText(this@HomeActivity, "Successfully bound ADB to TCP port 5555", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@HomeActivity, R.string.settings_tcp_5555_bind_success, Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(this@HomeActivity, "Failed to bind ADB to port 5555. Root or active Dhizuku/Shevery is required.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this@HomeActivity,
+                        getString(R.string.settings_tcp_5555_bind_failed, failureReason),
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
     }
 
 
+    private fun isPermissionDefined(permission: String): Boolean {
+        return try {
+            packageManager.getPermissionInfo(permission, 0)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private suspend fun waitForAdbTcpPort(port: Int): Boolean {
+        repeat(10) {
+            if (EnvironmentUtils.isAdbPortLive(port)) return true
+            delay(500)
+        }
+        return false
+    }
+
     companion object {
+        private const val ADB_TCP_BIND_COMMAND = "setprop service.adb.tcp.port 5555; setprop ctl.restart adbd || (stop adbd; start adbd)"
         private const val SDK_ANDROID_13 = 33
-        private const val SDK_ANDROID_16 = 36
         private const val SDK_ANDROID_17 = 37
         private const val PERMISSION_ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
+        private const val PERMISSION_USE_LOOPBACK_INTERFACE = "android.permission.USE_LOOPBACK_INTERFACE"
     }
 }
 
 private data class LocalNetworkPermissionState(
-    val permission: String?,
-    val required: Boolean,
-    val granted: Boolean
+    val permissions: List<String>,
+    val missingPermissions: List<String>
 ) {
+    val required: Boolean
+        get() = permissions.isNotEmpty()
+    val granted: Boolean
+        get() = missingPermissions.isEmpty()
     val label: String
-        get() = permission?.substringAfterLast('.') ?: "none"
+        get() = permissions.takeIf { it.isNotEmpty() }
+            ?.joinToString { it.substringAfterLast('.') }
+            ?: "none"
 }
 
 private data class HomeButtonSpec(
@@ -1215,5 +1281,4 @@ private fun DhizukuCard(onStartDhizuku: () -> Unit) {
         )
     }
 }
-
 

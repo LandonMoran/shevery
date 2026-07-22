@@ -6,6 +6,8 @@ import android.os.Build
 import android.os.SystemProperties
 import android.provider.Settings
 import android.util.Log
+import java.net.InetSocketAddress
+import java.net.Socket
 
 class DhizukuService(private val context: Context) : IDhizukuService.Stub() {
 
@@ -116,27 +118,58 @@ class DhizukuService(private val context: Context) : IDhizukuService.Stub() {
         }
     }
 
-    override fun bindAdbTcp(port: Int) {
-        try {
+    override fun bindAdbTcp(port: Int): Boolean {
+        return try {
             val targetPort = if (port > 0) port else 5555
             Log.d(TAG, "Binding ADB TCP on port $targetPort")
-            // Use shell to set the property and restart ADB daemon
-            val cmd = "setprop service.adb.tcp.port $targetPort && stop adbd && start adbd"
-            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", cmd))
-            val stdoutThread = Thread {
-                try { process.inputStream.use { it.readBytes() } } catch (_: Exception) {}
-            }
-            val stderrThread = Thread {
-                try { process.errorStream.use { it.readBytes() } } catch (_: Exception) {}
-            }
-            stdoutThread.start()
-            stderrThread.start()
-            process.waitFor()
-            stdoutThread.join(2000)
-            stderrThread.join(2000)
-            Log.d(TAG, "ADB TCP bind command finished, exit code: ${process.exitValue()}")
+            val exitCode = runAdbTcpBindCommand(targetPort)
+            val live = waitForAdbTcpPort(targetPort)
+            Log.d(TAG, "ADB TCP bind command finished, exit code: $exitCode, live: $live")
+            exitCode == 0 && live
         } catch (e: Exception) {
             Log.e(TAG, "bindAdbTcp failed", e)
+            false
+        }
+    }
+
+    private fun runAdbTcpBindCommand(port: Int): Int {
+        val cmd = "setprop service.adb.tcp.port $port; setprop ctl.restart adbd || (stop adbd; start adbd)"
+        val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", cmd))
+        val stdoutThread = Thread {
+            try { process.inputStream.use { it.readBytes() } } catch (_: Exception) {}
+        }
+        val stderrThread = Thread {
+            try { process.errorStream.use { it.readBytes() } } catch (_: Exception) {}
+        }
+        stdoutThread.start()
+        stderrThread.start()
+        val exitCode = process.waitFor()
+        stdoutThread.join(2000)
+        stderrThread.join(2000)
+        return exitCode
+    }
+
+    private fun waitForAdbTcpPort(port: Int): Boolean {
+        repeat(10) {
+            if (isAdbPortLive(port)) return true
+            try {
+                Thread.sleep(500)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return false
+            }
+        }
+        return false
+    }
+
+    private fun isAdbPortLive(port: Int): Boolean {
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", port), 250)
+            }
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 }

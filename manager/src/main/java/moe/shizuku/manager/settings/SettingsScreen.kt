@@ -85,6 +85,9 @@ fun SettingsScreen() {
     var autoDisableUsbDebugging by remember {
         mutableStateOf(ShizukuSettings.getAutoDisableUsbDebugging())
     }
+    var tcpMode by remember {
+        mutableStateOf(ShizukuSettings.isTcpMode())
+    }
     var languageTag by remember {
         mutableStateOf(prefs.getString(LANGUAGE, "SYSTEM") ?: "SYSTEM")
     }
@@ -249,6 +252,16 @@ fun SettingsScreen() {
                     onCheckedChange = { enabled ->
                         ShizukuSettings.setAutoDisableUsbDebugging(enabled)
                         autoDisableUsbDebugging = ShizukuSettings.getAutoDisableUsbDebugging()
+                    }
+                )
+                SwitchSettingsRow(
+                    icon = R.drawable.ic_baseline_link_24,
+                    title = stringResource(R.string.settings_tcp_mode),
+                    summary = stringResource(R.string.settings_tcp_mode_summary),
+                    checked = tcpMode,
+                    onCheckedChange = { enabled ->
+                        ShizukuSettings.setTcpMode(enabled)
+                        tcpMode = ShizukuSettings.isTcpMode()
                     }
                 )
             }
