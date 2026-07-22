@@ -1,0 +1,64 @@
+name: Shevy Final Debug APK
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - 'v-shevy-final-debug'
+
+jobs:
+  build-and-release-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+          fetch-depth: 0
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - name: Setup Android SDK
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --channel=3 --licenses > /dev/null || true
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Build APKs with Gradle
+        run: |
+          chmod +x gradlew
+          echo 'android.sdk.channel=3' >> gradle.properties
+          echo 'android.native.buildOutput=verbose' >> gradle.properties
+          echo 'org.gradle.caching=true' >> gradle.properties
+          echo 'org.gradle.parallel=true' >> gradle.properties
+          ./gradlew --no-daemon :manager:assemble
+          find out/apk -type f -name '*.apk' -print
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shevy-final-debug-apks
+          path: out/apk/*.apk
+          if-no-files-found: error
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Shevy Final Debug
+          body: |
+            Fork-only final debug build that combines every currently open fix PR for device testing.
+
+            Included PRs and fixes:
+            - #38 Align wireless ADB with Android 11 flow: keeps platform Wireless Debugging Android 11+, avoids UI-thread live socket probes, and validates fallback ports before launch.
+            - #47 Restore TCP Mode setting and diagnose 5555 binding: restores the TCP Mode watchdog setting and keeps the Bind to 5555 card honest by requiring the port to actually become live before reporting a successful bind.
+            - #48 Fix app-count refresh, manual stop, and Dhizuku readiness: refreshes authorized-app counts after management changes, respects intentional manual stops, separates watchdog notifications, and verifies Dhizuku direct-start binder readiness.
+            - #49 Label icon-only controls for TalkBack: adds accessibility labels for unlabeled icon-only controls without changing the visual UI.
+
+            Assets:
+            - Debug APK
+            - Release APK
+          files: out/apk/*.apk
+          fail_on_unmatched_files: true

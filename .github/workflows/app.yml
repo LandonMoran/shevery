@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*'
+      - 'v-upstream-app-workflow-disabled-for-shevy-final-debug-*'
 
 jobs:
   build:
