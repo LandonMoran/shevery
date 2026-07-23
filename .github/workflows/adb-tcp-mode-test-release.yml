@@ -1,0 +1,51 @@
+name: ADB TCP Mode Test Release
+
+on:
+  push:
+    tags:
+      - 'v-adb-tcp-mode-version-8'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_NAME: ADB TCP Mode Version 8
+
+jobs:
+  build-release:
+    name: Build and publish test APKs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+      - name: Build APKs
+        run: ./gradlew --no-daemon :manager:assemble
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: adb-tcp-mode-version-8-apks
+          path: out/apk/*.apk
+          compression-level: 9
+          if-no-files-found: error
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ env.RELEASE_NAME }}
+          body: |
+            Fork-only test build for ADB TCP Mode Version 8.
+
+            Includes current upstream main, all merged fixes, TCP Mode lifecycle/automatic 5555 fallback, verified manual Stop, Shevery Control notification visibility improvements, and manual-stop watchdog notification suppression from PR #52.
+          prerelease: true
+          files: out/apk/*.apk
+          fail_on_unmatched_files: true
+          overwrite_files: true
