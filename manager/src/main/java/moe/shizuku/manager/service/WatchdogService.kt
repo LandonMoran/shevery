@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import moe.shizuku.manager.MainActivity
 import moe.shizuku.manager.R
+import moe.shizuku.manager.receiver.SheveryControlReceiver
 import moe.shizuku.manager.ktx.logd
 
 class WatchdogService : Service() {
@@ -115,7 +116,7 @@ class WatchdogService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_server_ok_24dp)
             .setContentTitle(getString(R.string.watchdog_service_title))
             .setContentText(getString(R.string.watchdog_service_text))
@@ -123,7 +124,38 @@ class WatchdogService : Service() {
             .setOngoing(true)
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+
+        val startIntent = Intent(this, SheveryControlReceiver::class.java).apply {
+            action = SheveryControlReceiver.ACTION_START_SERVER
+        }
+        val startPendingIntent = PendingIntent.getBroadcast(
+            this,
+            2,
+            startIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        builder.addAction(
+            R.drawable.ic_server_restart,
+            getString(R.string.notification_control_action_start),
+            startPendingIntent
+        )
+
+        val stopIntent = Intent(this, SheveryControlReceiver::class.java).apply {
+            action = SheveryControlReceiver.ACTION_STOP_SERVER
+        }
+        val stopPendingIntent = PendingIntent.getBroadcast(
+            this,
+            1,
+            stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        builder.addAction(
+            R.drawable.ic_outline_info_24,
+            getString(R.string.notification_control_action_stop),
+            stopPendingIntent
+        )
+
+        return builder.build()
     }
 
     companion object {
